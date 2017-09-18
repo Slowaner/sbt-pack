@@ -7,17 +7,22 @@
 
 package xerial.sbt.pack
 
+import java.io.{BufferedWriter, PrintWriter}
 import java.nio.file.Files
 import java.time.format.{DateTimeFormatterBuilder, SignStyle}
 import java.time.temporal.ChronoField._
 import java.time.{Instant, ZoneId, ZonedDateTime}
 import java.util.{Date, Locale}
 
+import scala.io.Source
+
 import sbt.Keys._
 import sbt._
-
 import scala.util.Try
 import scala.util.matching.Regex
+
+import org.fusesource.scalate.support.AttributesHashMap
+import org.fusesource.scalate.{DefaultRenderContext, RenderContext, TemplateEngine, TemplateSource}
 
 /**
   * Plugin for packaging projects
@@ -37,47 +42,57 @@ object PackPlugin extends AutoPlugin with PackArchive {
     private def classifierSuffix = classifier.map("-" + _).getOrElse("")
 
     override def toString = "%s:%s:%s%s".format(org, artifactName, revision, classifierSuffix)
+
     def originalFileName = file.getName
+
     def jarName = "%s-%s%s.jar".format(artifactName, revision, classifierSuffix)
+
     def fullJarName = "%s.%s-%s%s.jar".format(org, artifactName, revision, classifierSuffix)
+
     def noVersionJarName = "%s.%s%s.jar".format(org, artifactName, classifierSuffix)
+
     def noVersionModuleName = "%s.%s%s.jar".format(org, name, classifierSuffix)
+
     def toDependencyStr = s""""${org}" % "${name}" % "${revision}""""
   }
 
   object autoImport {
-    val pack          = taskKey[File]("create a distributable package of the project")
-    val packInstall   = inputKey[Int]("pack and install")
+    val pack = taskKey[File]("create a distributable package of the project")
+    val packInstall = inputKey[Int]("pack and install")
     val packTargetDir = settingKey[File]("target directory to pack default is target")
-    val packDir       = settingKey[String]("pack directory name")
+    val packDir = settingKey[String]("pack directory name")
 
     //val packBashTemplate = settingKey[String]("template file for bash scripts - defaults to pack's out-of-the-box template for bash")
     //val packBatTemplate  = settingKey[String]("template file for bash scripts - defaults to pack's out-of-the-box template for bat")
     //val packMakeTemplate = settingKey[String]("template file for bash scripts - defaults to pack's out-of-the-box template for make")
 
-    val packMain                   = TaskKey[Map[String, String]]("prog_name -> main class table")
-    val packMainDiscovered         = TaskKey[Map[String, String]]("discovered prog_name -> main class table")
-    val packExclude                = SettingKey[Seq[String]]("pack-exclude", "specify projects whose dependencies will be excluded when packaging")
-    val packExcludeLibJars         = SettingKey[Seq[String]]("pack-exclude", "specify projects to exclude when packaging.  Its dependencies will be processed")
-    val packExcludeJars            = SettingKey[Seq[String]]("pack-exclude-jars", "specify jar file name patterns to exclude when packaging")
-    val packExcludeArtifactTypes   = settingKey[Seq[String]]("specify artifact types (e.g. javadoc) to exclude when packaging")
-    val packLibJars                = TaskKey[Seq[(File, ProjectRef)]]("pack-lib-jars")
+    val packMain = TaskKey[Map[String, String]]("prog_name -> main class table")
+    val packMainDiscovered = TaskKey[Map[String, String]]("discovered prog_name -> main class table")
+    val packExclude = SettingKey[Seq[String]]("pack-exclude", "specify projects whose dependencies will be excluded when packaging")
+    val packExcludeLibJars = SettingKey[Seq[String]]("pack-exclude", "specify projects to exclude when packaging.  Its dependencies will be processed")
+    val packExcludeJars = SettingKey[Seq[String]]("pack-exclude-jars", "specify jar file name patterns to exclude when packaging")
+    val packExcludeArtifactTypes = settingKey[Seq[String]]("specify artifact types (e.g. javadoc) to exclude when packaging")
+    val packLibJars = TaskKey[Seq[(File, ProjectRef)]]("pack-lib-jars")
     val packGenerateWindowsBatFile = settingKey[Boolean]("Generate BAT file launch scripts for Windows")
-    val packGenerateMakefile       = settingKey[Boolean]("Generate Makefile")
+    val packGenerateMakefile = settingKey[Boolean]("Generate Makefile")
 
-    val packMacIconFile                      = SettingKey[String]("pack-mac-icon-file", "icon file name for Mac")
-    val packResourceDir                      = SettingKey[Map[File, String]](s"pack-resource-dir", "pack resource directory. default = Map({projectRoot}/src/pack -> \"\")")
-    val packAllUnmanagedJars                 = taskKey[Seq[(Classpath, ProjectRef)]]("all unmanaged jar files")
-    val packModuleEntries                    = taskKey[Seq[ModuleEntry]]("modules that will be packed")
-    val packJvmOpts                          = SettingKey[Map[String, Seq[String]]]("pack-jvm-opts")
-    val packExtraClasspath                   = SettingKey[Map[String, Seq[String]]]("pack-extra-classpath")
-    val packExpandedClasspath                = settingKey[Boolean]("Expands the wildcard classpath in launch scripts to point at specific libraries")
-    val packJarNameConvention                = SettingKey[String]("pack-jarname-convention",
+    val packBatFileTemplate = settingKey[ScriptSource]("URI to BAT file template")
+    val packBashFileTemplate = settingKey[ScriptSource]("URI to BASH file template")
+    val packMakeFileTemplate = settingKey[ScriptSource]("URI to MAKEFILE file template")
+
+    val packMacIconFile = SettingKey[String]("pack-mac-icon-file", "icon file name for Mac")
+    val packResourceDir = SettingKey[Map[File, String]](s"pack-resource-dir", "pack resource directory. default = Map({projectRoot}/src/pack -> \"\")")
+    val packAllUnmanagedJars = taskKey[Seq[(Classpath, ProjectRef)]]("all unmanaged jar files")
+    val packModuleEntries = taskKey[Seq[ModuleEntry]]("modules that will be packed")
+    val packJvmOpts = SettingKey[Map[String, Seq[String]]]("pack-jvm-opts")
+    val packExtraClasspath = SettingKey[Map[String, Seq[String]]]("pack-extra-classpath")
+    val packExpandedClasspath = settingKey[Boolean]("Expands the wildcard classpath in launch scripts to point at specific libraries")
+    val packJarNameConvention = SettingKey[String]("pack-jarname-convention",
       "default: (artifact name)-(version).jar; original: original JAR name; full: (organization).(artifact name)-(version).jar; no-version: (organization).(artifact name).jar")
-    val packDuplicateJarStrategy             = SettingKey[String]("deal with duplicate jars. default to use latest version",
+    val packDuplicateJarStrategy = SettingKey[String]("deal with duplicate jars. default to use latest version",
       "latest: use the jar with a higher version; exit: exit the task with error")
-    val packCopyDependenciesTarget           = settingKey[File]("target folder used by the <packCopyDependencies> task.")
-    val packCopyDependencies                 = taskKey[Unit](
+    val packCopyDependenciesTarget = settingKey[File]("target folder used by the <packCopyDependencies> task.")
+    val packCopyDependencies = taskKey[Unit](
       """just copies the dependencies to the <packCopyDependencies> folder.
         		|Compared to the <pack> task, it doesn't try to create scripts.
       	  """.stripMargin)
@@ -86,19 +101,19 @@ object PackPlugin extends AutoPlugin with PackArchive {
         		|The use of symbolic links allows faster processing and save disk space.
       	  """.stripMargin)
 
-    val packArchivePrefix      = SettingKey[String]("prefix of (prefix)-(version).(format) archive file name")
-    val packArchiveName        = SettingKey[String]("archive file name. Default is (project-name)-(version)")
-    val packArchiveStem        = SettingKey[String]("directory name within the archive. Default is (archive-name)")
-    val packArchiveExcludes    = SettingKey[Seq[String]]("List of excluding files from the archive")
+    val packArchivePrefix = SettingKey[String]("prefix of (prefix)-(version).(format) archive file name")
+    val packArchiveName = SettingKey[String]("archive file name. Default is (project-name)-(version)")
+    val packArchiveStem = SettingKey[String]("directory name within the archive. Default is (archive-name)")
+    val packArchiveExcludes = SettingKey[Seq[String]]("List of excluding files from the archive")
     val packArchiveTgzArtifact = SettingKey[Artifact]("tar.gz archive artifact")
     val packArchiveTbzArtifact = SettingKey[Artifact]("tar.bz2 archive artifact")
     val packArchiveTxzArtifact = SettingKey[Artifact]("tar.xz archive artifact")
     val packArchiveZipArtifact = SettingKey[Artifact]("zip archive artifact")
-    val packArchiveTgz         = TaskKey[File]("pack-archive-tgz", "create a tar.gz archive of the distributable package")
-    val packArchiveTbz         = TaskKey[File]("pack-archive-tbz", "create a tar.bz2 archive of the distributable package")
-    val packArchiveTxz         = TaskKey[File]("pack-archive-txz", "create a tar.xz archive of the distributable package")
-    val packArchiveZip         = TaskKey[File]("pack-archive-zip", "create a zip archive of the distributable package")
-    val packArchive            = TaskKey[Seq[File]]("pack-archive", "create a tar.gz and a zip archive of the distributable package")
+    val packArchiveTgz = TaskKey[File]("pack-archive-tgz", "create a tar.gz archive of the distributable package")
+    val packArchiveTbz = TaskKey[File]("pack-archive-tbz", "create a tar.bz2 archive of the distributable package")
+    val packArchiveTxz = TaskKey[File]("pack-archive-txz", "create a tar.xz archive of the distributable package")
+    val packArchiveZip = TaskKey[File]("pack-archive-zip", "create a zip archive of the distributable package")
+    val packArchive = TaskKey[Seq[File]]("pack-archive", "create a tar.gz and a zip archive of the distributable package")
   }
 
   import complete.DefaultParsers._
@@ -113,9 +128,11 @@ object PackPlugin extends AutoPlugin with PackArchive {
   lazy val packSettings = Seq[Def.Setting[_]](
     packTargetDir := target.value,
     packDir := "pack",
+
     //packBashTemplate := "/xerial/sbt/template/launch.mustache",
     //packBatTemplate := "/xerial/sbt/template/launch-bat.mustache",
     //packMakeTemplate := "/xerial/sbt/template/Makefile.mustache",
+
     packMain := packMainDiscovered.value,
     packExclude := Seq.empty,
     packExcludeLibJars := Seq.empty,
@@ -130,22 +147,34 @@ object PackPlugin extends AutoPlugin with PackArchive {
     packDuplicateJarStrategy := "latest",
     packGenerateWindowsBatFile := true,
     packGenerateMakefile := true,
+
+    packBatFileTemplate := null,
+    packBashFileTemplate := null,
+    packMakeFileTemplate := null,
+
     packMainDiscovered := Def.taskDyn {
       val mainClasses = getFromSelectedProjects(discoveredMainClasses in Compile, state.value, packExclude.value)
-      Def.task {mainClasses.value.flatMap(_._1.map(mainClass => hyphenize(mainClass.split('.').last) -> mainClass).toMap).toMap}
+      Def.task {
+        mainClasses.value.flatMap(_._1.map(mainClass => hyphenize(mainClass.split('.').last) -> mainClass).toMap).toMap
+      }
     }.value,
     packAllUnmanagedJars := Def.taskDyn {
       val allUnmanagedJars = getFromSelectedProjects(unmanagedJars in Runtime, state.value, packExclude.value)
-      Def.task {allUnmanagedJars.value}
+      Def.task {
+        allUnmanagedJars.value
+      }
     }.value,
     packLibJars := Def.taskDyn {
       val libJars = getFromSelectedProjects(packageBin in Runtime, state.value, packExcludeLibJars.value)
-      Def.task {libJars.value}
+      Def.task {
+        libJars.value
+      }
     }.value,
     (mappings in pack) := Seq.empty,
     packModuleEntries := {
       val out = streams.value
       val jarExcludeFilter: Seq[Regex] = packExcludeJars.value.map(_.r)
+
       def isExcludeJar(name: String): Boolean = {
         val toExclude = jarExcludeFilter.exists(pattern => pattern.findFirstIn(name).isDefined)
         if (toExclude) {
@@ -169,22 +198,22 @@ object PackPlugin extends AutoPlugin with PackArchive {
 
       implicit val versionStringOrdering = DefaultVersionStringOrdering
       val distinctDpJars = dependentJars
-                           .groupBy(_.noVersionModuleName)
-                           .flatMap {
-                             case (key, entries) if entries.groupBy(_.revision).size == 1 => entries
-                             case (key, entries) =>
-                               val revisions = entries.groupBy(_.revision).map(_._1).toList.sorted
-                               val latestRevision = revisions.last
-                               packDuplicateJarStrategy.value match {
-                                 case "latest" =>
-                                   out.log.debug(s"Version conflict on $key. Using ${latestRevision} (found ${revisions.mkString(", ")})")
-                                   entries.filter(_.revision == latestRevision)
-                                 case "exit" =>
-                                   sys.error(s"Version conflict on $key (found ${revisions.mkString(", ")})")
-                                 case x =>
-                                   sys.error("Unknown duplicate JAR strategy '%s'".format(x))
-                               }
-                           }
+        .groupBy(_.noVersionModuleName)
+        .flatMap {
+          case (key, entries) if entries.groupBy(_.revision).size == 1 => entries
+          case (key, entries) =>
+            val revisions = entries.groupBy(_.revision).map(_._1).toList.sorted
+            val latestRevision = revisions.last
+            packDuplicateJarStrategy.value match {
+              case "latest" =>
+                out.log.debug(s"Version conflict on $key. Using ${latestRevision} (found ${revisions.mkString(", ")})")
+                entries.filter(_.revision == latestRevision)
+              case "exit" =>
+                sys.error(s"Version conflict on $key (found ${revisions.mkString(", ")})")
+              case x =>
+                sys.error("Unknown duplicate JAR strategy '%s'".format(x))
+            }
+        }
       distinctDpJars.toSeq
     },
     packCopyDependenciesUseSymbolicLinks := true,
@@ -193,13 +222,17 @@ object PackPlugin extends AutoPlugin with PackArchive {
       val log = streams.value.log
 
       val distinctDpJars = packModuleEntries.value.map(_.file)
-      val unmanaged = packAllUnmanagedJars.value.flatMap {_._1}.map {_.data}
+      val unmanaged = packAllUnmanagedJars.value.flatMap {
+        _._1
+      }.map {
+        _.data
+      }
       val copyDepTargetDir = packCopyDependenciesTarget.value
       val useSymlink = packCopyDependenciesUseSymbolicLinks.value
 
       copyDepTargetDir.mkdirs()
       IO.delete((copyDepTargetDir * "*.jar").get)
-      (distinctDpJars ++ unmanaged) foreach {d ⇒
+      (distinctDpJars ++ unmanaged) foreach { d ⇒
         log debug s"Copying ${d.getName}"
         val dest = copyDepTargetDir / d.getName
         if (useSymlink) {
@@ -291,7 +324,9 @@ object PackPlugin extends AutoPlugin with PackArchive {
       // Render script via Scalate template
       for ((name, mainClass) <- mainTable) {
         out.log.info("main class for %s: %s".format(name, mainClass))
+
         def extraClasspath(sep: String): String = packExtraClasspath.value.get(name).map(_.mkString("", sep, sep)).getOrElse("")
+
         def expandedClasspath(sep: String): String = {
           val projJars = libs.map(l => "${PROG_HOME}/lib/" + l.getName)
           val depJars = distinctDpJars.map(m => "${PROG_HOME}/lib/" + resolveJarName(m, jarNameConvention))
@@ -300,6 +335,7 @@ object PackPlugin extends AutoPlugin with PackArchive {
           }
           (projJars ++ depJars ++ unmanagedJars).mkString("", sep, sep)
         }
+
         val expandedClasspathM = if (expandedCp) {
           Some(expandedClasspath(pathSeparator))
         }
@@ -317,8 +353,10 @@ object PackPlugin extends AutoPlugin with PackArchive {
           MAC_ICON_FILE = macIconFile
         )
 
-        // TODO use custom template (packBashTemplate)
-        val launchScript = LaunchScript.generateLaunchScript(scriptOpts, expandedClasspathM)
+        val bashTemplSource = packBashFileTemplate.value
+        val launchScript =
+          if (bashTemplSource == null) LaunchScript.generateLaunchScript(scriptOpts, expandedClasspathM)
+          else LaunchScript.generateForScriptSource(bashTemplSource, scriptOpts)
         val progName = name.replaceAll(" ", "") // remove white spaces
         write(s"bin/$progName", launchScript)
 
@@ -333,7 +371,7 @@ object PackPlugin extends AutoPlugin with PackArchive {
           else {
             None
           }
-          // TODO use custom templte (packBatTemplate)
+
           val batScriptOpts = LaunchScript.Opts(
             PROG_NAME = name,
             PROG_VERSION = progVersion,
@@ -344,7 +382,10 @@ object PackPlugin extends AutoPlugin with PackArchive {
             MAC_ICON_FILE = replaceProgHome(macIconFile)
           )
 
-          val batScript = LaunchScript.generateBatScript(batScriptOpts, expandedClasspathM)
+          val batTemplSource = packBatFileTemplate.value
+          val batScript =
+            if (batTemplSource == null) LaunchScript.generateBatScript(batScriptOpts, expandedClasspathM)
+            else LaunchScript.generateForScriptSource(batTemplSource, scriptOpts)
           write(s"bin/${progName}.bat", batScript)
         }
       }
@@ -360,11 +401,14 @@ object PackPlugin extends AutoPlugin with PackArchive {
       val projectName = name.value
       if (packGenerateMakefile.value) {
         // Create Makefile
-        // TODO Use custom template (packMakefileTemplate)
         val makefile = {
           val additionalScripts = binScriptsDir.flatMap(_.listFiles).map(_.getName)
           val symlink = (mainTable.keys ++ additionalScripts).map(linkToScript).mkString("\n")
-          LaunchScript.generateMakefile(projectName, symlink)
+
+          // TODO: Fix makefile template creation
+          val makefileTemplSource = packMakeFileTemplate.value
+          if (makefileTemplSource == null) LaunchScript.generateMakefile(projectName, symlink)
+          else LaunchScript.generateForScriptSource(makefileTemplSource, null)
         }
         write("Makefile", makefile)
       }
@@ -378,7 +422,7 @@ object PackPlugin extends AutoPlugin with PackArchive {
       write("VERSION", s"version:=${progVersion}\nrevision:=${gitRevision}\nbuildTime:=${buildTime}\n")
 
       // Copy other scripts
-      otherResourceDirs.foreach {otherResourceDir =>
+      otherResourceDirs.foreach { otherResourceDir =>
         val from = otherResourceDir._1
         val to = otherResourceDir._2 match {
           case "" => distDir
@@ -421,25 +465,28 @@ object PackPlugin extends AutoPlugin with PackArchive {
       val children = Project.getProject(currentProject, structure).toSeq.flatMap(_.uses)
       (currentProject +: (children flatMap (allProjectRefs(_)))) filterNot (isExcluded)
     }
+
     val projects: Seq[ProjectRef] = allProjectRefs(extracted.currentRef).distinct
-    projects.map(p => (Def.task {((targetTask in p).value, p)}) evaluate structure.data).join
+    projects.map(p => (Def.task {
+      ((targetTask in p).value, p)
+    }) evaluate structure.data).join
   }
 
   private val humanReadableTimestampFormatter = new DateTimeFormatterBuilder()
-                                                .parseCaseInsensitive()
-                                                .appendValue(YEAR, 4, 10, SignStyle.EXCEEDS_PAD)
-                                                .appendLiteral('-')
-                                                .appendValue(MONTH_OF_YEAR, 2)
-                                                .appendLiteral('-')
-                                                .appendValue(DAY_OF_MONTH, 2)
-                                                .appendLiteral(' ')
-                                                .appendValue(HOUR_OF_DAY, 2)
-                                                .appendLiteral(':')
-                                                .appendValue(MINUTE_OF_HOUR, 2)
-                                                .appendLiteral(':')
-                                                .appendValue(SECOND_OF_MINUTE, 2)
-                                                .appendOffset("+HHMM", "Z")
-                                                .toFormatter(Locale.US)
+    .parseCaseInsensitive()
+    .appendValue(YEAR, 4, 10, SignStyle.EXCEEDS_PAD)
+    .appendLiteral('-')
+    .appendValue(MONTH_OF_YEAR, 2)
+    .appendLiteral('-')
+    .appendValue(DAY_OF_MONTH, 2)
+    .appendLiteral(' ')
+    .appendValue(HOUR_OF_DAY, 2)
+    .appendLiteral(':')
+    .appendValue(MINUTE_OF_HOUR, 2)
+    .appendLiteral(':')
+    .appendValue(SECOND_OF_MINUTE, 2)
+    .appendOffset("+HHMM", "Z")
+    .toFormatter(Locale.US)
 
   private def pascalCaseSplit(s: List[Char]): List[String] =
     if (s.isEmpty) {

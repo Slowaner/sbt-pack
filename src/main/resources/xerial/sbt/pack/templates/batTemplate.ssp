@@ -1,0 +1,2 @@
+<%@ val opts : xerial.sbt.pack.LaunchScript.Opts %>
+TEST TEMPLATE! ${opts.PROG_NAME} ${opts.JVM_OPTS}
