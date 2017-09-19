@@ -5,7 +5,7 @@ import sbt.URI
 
 object LaunchScript {
 
-  def generateLaunchScript(opts: Opts, expandedClasspath: Option[String]): String = {
+  /*def generateLaunchScript(opts: Opts, expandedClasspath: Option[String]): String = {
     val content = xerial.sbt.pack.txt.launch.render(opts, expandedClasspath)
     content.toString
   }
@@ -18,7 +18,7 @@ object LaunchScript {
   def generateMakefile(PROG_NAME: String, PROG_SYMLINK: String): String = {
     val content = xerial.sbt.pack.txt.Makefile.render(PROG_NAME, PROG_SYMLINK)
     content.toString
-  }
+  }*/
 
   private lazy val teng = new TemplateEngine()
   private var cachedTemplates: Map[URI, Template] = Map[URI, Template]()
@@ -35,13 +35,14 @@ object LaunchScript {
   }
 
   case class Opts(
-    MAIN_CLASS: String,
-    PROG_NAME: String,
-    PROG_VERSION: String,
-    PROG_REVISION: String,
-    JVM_OPTS: String = "",
-    EXTRA_CLASSPATH: String,
-    MAC_ICON_FILE: String = "icon-mac.png"
+    mainClass: String,
+    progName: String,
+    progVersion: String,
+    progRevision: String,
+    extraClasspath: Seq[String],
+    expandedClasspath: Seq[String],
+    jvmOpts: Seq[String] = Nil,
+    macIconFile: String = "icon-mac.png"
   )
 
 }

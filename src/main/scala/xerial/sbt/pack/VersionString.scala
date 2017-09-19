@@ -14,14 +14,14 @@ import scala.util.{Success, Try}
  * @author Christian Hoffmeister
  */
 case class VersionString(numbers: List[String], suffix: Option[String]) {
-  def major = numbers.head
-  def minor = numbers.drop(1).headOption
-  def patch = numbers.drop(2).headOption
+  def major: String = numbers.head
+  def minor: Option[String] = numbers.drop(1).headOption
+  def patch: Option[String] = numbers.drop(2).headOption
 
-  override def toString = (numbers, suffix) match {
-    case (n, Some(s)) if n.length > 0 => "%s-%s".format(n.mkString("."), s)
-    case (n, None) if n.length > 0 => n.mkString(".")
-    case (n, Some(s)) if n.length == 0 => s
+  override def toString: String = (numbers, suffix) match {
+    case (n, Some(s)) if n.nonEmpty => "%s-%s".format(n.mkString("."), s)
+    case (n, None) if n.nonEmpty => n.mkString(".")
+    case (n, Some(s)) if n.isEmpty => s
     case _ => ""
   }
 }
@@ -57,6 +57,7 @@ object DefaultVersionStringOrdering extends Ordering[VersionString] {
             else compareNumberSequence(tail1, tail2)
           case _ => n1.compareTo(n2)
         }
+      case _ => throw new IllegalArgumentException()
     }
 
     compareNumberSequence(a.numbers, b.numbers) match {

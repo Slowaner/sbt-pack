@@ -7,22 +7,16 @@
 
 package xerial.sbt.pack
 
-import java.io.{BufferedWriter, PrintWriter}
 import java.nio.file.Files
-import java.time.format.{DateTimeFormatterBuilder, SignStyle}
-import java.time.temporal.ChronoField._
 import java.time.{Instant, ZoneId, ZonedDateTime}
-import java.util.{Date, Locale}
+import java.util.Date
 
-import scala.io.Source
-
-import sbt.Keys._
-import sbt._
 import scala.util.Try
 import scala.util.matching.Regex
 
-import org.fusesource.scalate.support.AttributesHashMap
-import org.fusesource.scalate.{DefaultRenderContext, RenderContext, TemplateEngine, TemplateSource}
+import sbt.Keys._
+import sbt.complete.DefaultParsers._
+import sbt.{Def, _}
 
 /**
   * Plugin for packaging projects
@@ -33,38 +27,11 @@ object PackPlugin extends AutoPlugin with PackArchive {
 
   override def trigger = allRequirements
 
-  case class ModuleEntry(org: String,
-    name: String,
-    revision: VersionString,
-    artifactName: String,
-    classifier: Option[String],
-    file: File) {
-    private def classifierSuffix = classifier.map("-" + _).getOrElse("")
-
-    override def toString = "%s:%s:%s%s".format(org, artifactName, revision, classifierSuffix)
-
-    def originalFileName = file.getName
-
-    def jarName = "%s-%s%s.jar".format(artifactName, revision, classifierSuffix)
-
-    def fullJarName = "%s.%s-%s%s.jar".format(org, artifactName, revision, classifierSuffix)
-
-    def noVersionJarName = "%s.%s%s.jar".format(org, artifactName, classifierSuffix)
-
-    def noVersionModuleName = "%s.%s%s.jar".format(org, name, classifierSuffix)
-
-    def toDependencyStr = s""""${org}" % "${name}" % "${revision}""""
-  }
-
   object autoImport {
     val pack = taskKey[File]("create a distributable package of the project")
     val packInstall = inputKey[Int]("pack and install")
     val packTargetDir = settingKey[File]("target directory to pack default is target")
     val packDir = settingKey[String]("pack directory name")
-
-    //val packBashTemplate = settingKey[String]("template file for bash scripts - defaults to pack's out-of-the-box template for bash")
-    //val packBatTemplate  = settingKey[String]("template file for bash scripts - defaults to pack's out-of-the-box template for bat")
-    //val packMakeTemplate = settingKey[String]("template file for bash scripts - defaults to pack's out-of-the-box template for make")
 
     val packMain = TaskKey[Map[String, String]]("prog_name -> main class table")
     val packMainDiscovered = TaskKey[Map[String, String]]("discovered prog_name -> main class table")
@@ -73,12 +40,17 @@ object PackPlugin extends AutoPlugin with PackArchive {
     val packExcludeJars = SettingKey[Seq[String]]("pack-exclude-jars", "specify jar file name patterns to exclude when packaging")
     val packExcludeArtifactTypes = settingKey[Seq[String]]("specify artifact types (e.g. javadoc) to exclude when packaging")
     val packLibJars = TaskKey[Seq[(File, ProjectRef)]]("pack-lib-jars")
+    val packGenerateBashFile = settingKey[Boolean]("Generate BASH file launch scripts")
     val packGenerateWindowsBatFile = settingKey[Boolean]("Generate BAT file launch scripts for Windows")
     val packGenerateMakefile = settingKey[Boolean]("Generate Makefile")
 
-    val packBatFileTemplate = settingKey[ScriptSource]("URI to BAT file template")
-    val packBashFileTemplate = settingKey[ScriptSource]("URI to BASH file template")
-    val packMakeFileTemplate = settingKey[ScriptSource]("URI to MAKEFILE file template")
+    val packBatDefaultTemplate = settingKey[ScriptSource]("BAT file template")
+    val packBashDefaultTemplate = settingKey[ScriptSource]("BASH file template")
+    val packMakeDefaultTemplate = settingKey[ScriptSource]("MAKEFILE file template")
+
+    val packBatCustomTemplates = settingKey[Map[String, ScriptSource]]("BAT file templates for each main class")
+    val packBashCustomTemplates = settingKey[Map[String, ScriptSource]]("BASH file template for each main class")
+    //    val packMakeCustomTemplates = settingKey[Map[String, ScriptSource]]("MAKEFILE file template for each main class")
 
     val packMacIconFile = SettingKey[String]("pack-mac-icon-file", "icon file name for Mac")
     val packResourceDir = SettingKey[Map[File, String]](s"pack-resource-dir", "pack resource directory. default = Map({projectRoot}/src/pack -> \"\")")
@@ -116,22 +88,16 @@ object PackPlugin extends AutoPlugin with PackArchive {
     val packArchive = TaskKey[Seq[File]]("pack-archive", "create a tar.gz and a zip archive of the distributable package")
   }
 
-  import complete.DefaultParsers._
-
   private val targetFolderParser: complete.Parser[Option[String]] =
     (Space ~> token(StringBasic, "(target folder)")).?.!!!("invalid input. please input target folder name")
 
-  override lazy val projectSettings = packSettings ++ packArchiveSettings
+  override lazy val projectSettings: Seq[Def.Setting[_]] = packSettings ++ packArchiveSettings
 
   import autoImport._
 
-  lazy val packSettings = Seq[Def.Setting[_]](
+  lazy val packSettings: Seq[Def.Setting[_]] = Seq[Def.Setting[_]](
     packTargetDir := target.value,
     packDir := "pack",
-
-    //packBashTemplate := "/xerial/sbt/template/launch.mustache",
-    //packBatTemplate := "/xerial/sbt/template/launch-bat.mustache",
-    //packMakeTemplate := "/xerial/sbt/template/Makefile.mustache",
 
     packMain := packMainDiscovered.value,
     packExclude := Seq.empty,
@@ -145,12 +111,16 @@ object PackPlugin extends AutoPlugin with PackArchive {
     packExpandedClasspath := false,
     packJarNameConvention := "default",
     packDuplicateJarStrategy := "latest",
+    packGenerateBashFile := true,
     packGenerateWindowsBatFile := true,
     packGenerateMakefile := true,
 
-    packBatFileTemplate := null,
-    packBashFileTemplate := null,
-    packMakeFileTemplate := null,
+    packBatDefaultTemplate := ScriptSource(getClass.getResource("/xerial/sbt/pack/templates/batTemplate.ssp")),
+    packBashDefaultTemplate := ScriptSource(getClass.getResource("/xerial/sbt/pack/templates/bashTemplate.ssp")),
+    packMakeDefaultTemplate := ScriptSource(getClass.getResource("/xerial/sbt/pack/templates/makefileTemplate.ssp")),
+
+    packBatCustomTemplates := Map.empty[String, ScriptSource],
+    packBashCustomTemplates := Map.empty[String, ScriptSource],
 
     packMainDiscovered := Def.taskDyn {
       val mainClasses = getFromSelectedProjects(discoveredMainClasses in Compile, state.value, packExclude.value)
@@ -196,17 +166,17 @@ object PackPlugin extends AutoPlugin with PackArchive {
           ModuleEntry(mid.organization, mid.name, VersionString(mid.revision), artifact.name, artifact.classifier, file)
         }
 
-      implicit val versionStringOrdering = DefaultVersionStringOrdering
+      implicit val versionStringOrdering: DefaultVersionStringOrdering.type = DefaultVersionStringOrdering
       val distinctDpJars = dependentJars
         .groupBy(_.noVersionModuleName)
         .flatMap {
           case (key, entries) if entries.groupBy(_.revision).size == 1 => entries
           case (key, entries) =>
-            val revisions = entries.groupBy(_.revision).map(_._1).toList.sorted
+            val revisions = entries.groupBy(_.revision).keys.toList.sorted
             val latestRevision = revisions.last
             packDuplicateJarStrategy.value match {
               case "latest" =>
-                out.log.debug(s"Version conflict on $key. Using ${latestRevision} (found ${revisions.mkString(", ")})")
+                out.log.debug(s"Version conflict on $key. Using $latestRevision (found ${revisions.mkString(", ")})")
                 entries.filter(_.revision == latestRevision)
               case "exit" =>
                 sys.error(s"Version conflict on $key (found ${revisions.mkString(", ")})")
@@ -245,7 +215,7 @@ object PackPlugin extends AutoPlugin with PackArchive {
       val libs = packLibJars.value.map(_._1)
       libs.foreach(l ⇒ IO.copyFile(l, copyDepTargetDir / l.getName))
 
-      log info s"Copied ${distinctDpJars.size + libs.size} jars to ${copyDepTargetDir}"
+      log info s"Copied ${distinctDpJars.size + libs.size} jars to $copyDepTargetDir"
     },
     pack := {
       val out = streams.value
@@ -273,14 +243,14 @@ object PackPlugin extends AutoPlugin with PackArchive {
       val jarNameConvention = packJarNameConvention.value
       for (m <- distinctDpJars) {
         val targetFileName = resolveJarName(m, jarNameConvention)
-        IO.copyFile(m.file, libDir / targetFileName, true)
+        IO.copyFile(m.file, libDir / targetFileName, preserveLastModified = true)
       }
 
       // Copy unmanaged jars in ${baseDir}/lib folder
       out.log.info("unmanaged dependencies:")
       for ((m, projectRef) <- packAllUnmanagedJars.value; um <- m; f = um.data) {
         out.log.info(f.getPath)
-        IO.copyFile(f, libDir / f.getName, true)
+        IO.copyFile(f, libDir / f.getName, preserveLastModified = true)
       }
 
       // Copy explicitly added dependencies
@@ -288,7 +258,7 @@ object PackPlugin extends AutoPlugin with PackArchive {
       out.log.info("explicit dependencies:")
       for ((file, path) <- mapped) {
         out.log.info(file.getPath)
-        IO.copyFile(file, distDir / path, true)
+        IO.copyFile(file, distDir / path, preserveLastModified = true)
       }
 
       // Create target/pack/bin folder
@@ -325,91 +295,64 @@ object PackPlugin extends AutoPlugin with PackArchive {
       for ((name, mainClass) <- mainTable) {
         out.log.info("main class for %s: %s".format(name, mainClass))
 
-        def extraClasspath(sep: String): String = packExtraClasspath.value.get(name).map(_.mkString("", sep, sep)).getOrElse("")
-
-        def expandedClasspath(sep: String): String = {
-          val projJars = libs.map(l => "${PROG_HOME}/lib/" + l.getName)
-          val depJars = distinctDpJars.map(m => "${PROG_HOME}/lib/" + resolveJarName(m, jarNameConvention))
+        def expandedClasspath: Seq[String] = {
+          val projJars = libs.map(l => "lib/" + l.getName)
+          val depJars = distinctDpJars.map(m => "lib/" + resolveJarName(m, jarNameConvention))
           val unmanagedJars = for ((m, projectRef) <- packAllUnmanagedJars.value; um <- m; f = um.data) yield {
-            "${PROG_HOME}/lib/" + f.getName
+            "lib/" + f.getName
           }
-          (projJars ++ depJars ++ unmanagedJars).mkString("", sep, sep)
+          projJars ++ depJars ++ unmanagedJars
         }
 
         val expandedClasspathM = if (expandedCp) {
-          Some(expandedClasspath(pathSeparator))
+          expandedClasspath
         }
         else {
-          None
+          Nil
         }
 
         val scriptOpts = LaunchScript.Opts(
-          PROG_NAME = name,
-          PROG_VERSION = progVersion,
-          PROG_REVISION = gitRevision,
-          MAIN_CLASS = mainClass,
-          JVM_OPTS = packJvmOpts.value.getOrElse(name, Nil).map("\"%s\"".format(_)).mkString(" "),
-          EXTRA_CLASSPATH = extraClasspath(pathSeparator),
-          MAC_ICON_FILE = macIconFile
+          progName = name,
+          progVersion = progVersion,
+          progRevision = gitRevision,
+          mainClass = mainClass,
+          extraClasspath = packExtraClasspath.value.getOrElse(name, Nil),
+          expandedClasspath = expandedClasspathM,
+          jvmOpts = packJvmOpts.value.getOrElse(name, Nil).map("\"%s\"".format(_)),
+          macIconFile = macIconFile
         )
 
-        val bashTemplSource = packBashFileTemplate.value
-        val launchScript =
-          if (bashTemplSource == null) LaunchScript.generateLaunchScript(scriptOpts, expandedClasspathM)
-          else LaunchScript.generateForScriptSource(bashTemplSource, scriptOpts)
         val progName = name.replaceAll(" ", "") // remove white spaces
-        write(s"bin/$progName", launchScript)
+        val bashTemplSource = packBashCustomTemplates.value.getOrElse(name, packBashDefaultTemplate.value)
+        if (packGenerateBashFile.value) {
+          val launchScript = LaunchScript.generateForScriptSource(bashTemplSource, scriptOpts)
+          write(s"bin/$progName", launchScript)
+        }
 
         // Create BAT file
+        val batTemplSource = packBatCustomTemplates.value.getOrElse(name, packBatDefaultTemplate.value)
         if (packGenerateWindowsBatFile.value) {
-          def replaceProgHome(s: String) = s.replaceAll( """\$\{PROG_HOME\}""", "%PROG_HOME%")
-
-          val extraPath = extraClasspath("%PSEP%").replaceAll("/", """\\""")
-          val expandedClasspathM = if (expandedCp) {
-            Some(replaceProgHome(expandedClasspath("%PSEP%").replaceAll("/", """\\""")))
-          }
-          else {
-            None
-          }
-
-          val batScriptOpts = LaunchScript.Opts(
-            PROG_NAME = name,
-            PROG_VERSION = progVersion,
-            PROG_REVISION = gitRevision,
-            MAIN_CLASS = mainClass,
-            JVM_OPTS = replaceProgHome(scriptOpts.JVM_OPTS),
-            EXTRA_CLASSPATH = replaceProgHome(extraPath),
-            MAC_ICON_FILE = replaceProgHome(macIconFile)
-          )
-
-          val batTemplSource = packBatFileTemplate.value
-          val batScript =
-            if (batTemplSource == null) LaunchScript.generateBatScript(batScriptOpts, expandedClasspathM)
-            else LaunchScript.generateForScriptSource(batTemplSource, scriptOpts)
-          write(s"bin/${progName}.bat", batScript)
+          val batScript = LaunchScript.generateForScriptSource(batTemplSource, scriptOpts)
+          write(s"bin/$progName.bat", batScript)
         }
       }
 
       // Copy resources
       val otherResourceDirs = packResourceDir.value
       val binScriptsDir = otherResourceDirs.map(_._1 / "bin").filter(_.exists)
-      out.log.info(s"packed resource directories = ${otherResourceDirs.map(_._1).mkString(",")}")
+      out.log.info(s"packed resource directories = ${otherResourceDirs.keys.mkString(",")}")
 
       def linkToScript(name: String) =
         "\t" + """ln -sf "../$(PROG)/current/bin/%s" "$(PREFIX)/bin/%s"""".format(name, name)
 
       val projectName = name.value
+      val makefileTemplSource = packMakeDefaultTemplate.value
       if (packGenerateMakefile.value) {
         // Create Makefile
-        val makefile = {
-          val additionalScripts = binScriptsDir.flatMap(_.listFiles).map(_.getName)
-          val symlink = (mainTable.keys ++ additionalScripts).map(linkToScript).mkString("\n")
+        val additionalScripts = binScriptsDir.flatMap(_.listFiles).map(_.getName)
+        val symlink = (mainTable.keys ++ additionalScripts).map(linkToScript).mkString("\n")
+        val makefile = LaunchScript.generateForScriptSource(makefileTemplSource, null)
 
-          // TODO: Fix makefile template creation
-          val makefileTemplSource = packMakeFileTemplate.value
-          if (makefileTemplSource == null) LaunchScript.generateMakefile(projectName, symlink)
-          else LaunchScript.generateForScriptSource(makefileTemplSource, null)
-        }
         write("Makefile", makefile)
       }
 
@@ -419,7 +362,7 @@ object PackPlugin extends AutoPlugin with PackArchive {
       val buildTime = humanReadableTimestampFormatter.format(timestamp)
 
       // Output the version number and Git revision
-      write("VERSION", s"version:=${progVersion}\nrevision:=${gitRevision}\nbuildTime:=${buildTime}\n")
+      write("VERSION", s"version:=$progVersion\nrevision:=$gitRevision\nbuildTime:=$buildTime\n")
 
       // Copy other scripts
       otherResourceDirs.foreach { otherResourceDir =>
@@ -441,80 +384,12 @@ object PackPlugin extends AutoPlugin with PackArchive {
       val arg: Option[String] = targetFolderParser.parsed
       val packDir = pack.value
       val cmd = arg match {
-        case Some(target) =>
-          s"make install PREFIX=${target}"
+        case Some(trgt) =>
+          s"make install PREFIX=$trgt"
         case None =>
           s"make install"
       }
       sys.process.Process(cmd, Some(packDir)).!
     }
   )
-
-  //private def getFromAllProjects[T](targetTask: TaskKey[T])(currentProject: ProjectRef, structure: BuildStructure): Task[Seq[(T, ProjectRef)]] =
-  private def getFromAllProjects[T](targetTask: TaskKey[T], state: State): Task[Seq[(T, ProjectRef)]] =
-    getFromSelectedProjects(targetTask, state, Seq.empty)
-
-  //private def getFromSelectedProjects[T](targetTask: TaskKey[T])(currentProject: ProjectRef, structure: BuildStructure, exclude: Seq[String]): Task[Seq[(T, ProjectRef)]] = {
-  private def getFromSelectedProjects[T](targetTask: TaskKey[T], state: State, exclude: Seq[String]): Task[Seq[(T, ProjectRef)]] = {
-    val extracted = Project.extract(state)
-    val structure = extracted.structure
-
-    def allProjectRefs(currentProject: ProjectRef): Seq[ProjectRef] = {
-      def isExcluded(p: ProjectRef) = exclude.contains(p.project)
-
-      val children = Project.getProject(currentProject, structure).toSeq.flatMap(_.uses)
-      (currentProject +: (children flatMap (allProjectRefs(_)))) filterNot (isExcluded)
-    }
-
-    val projects: Seq[ProjectRef] = allProjectRefs(extracted.currentRef).distinct
-    projects.map(p => (Def.task {
-      ((targetTask in p).value, p)
-    }) evaluate structure.data).join
-  }
-
-  private val humanReadableTimestampFormatter = new DateTimeFormatterBuilder()
-    .parseCaseInsensitive()
-    .appendValue(YEAR, 4, 10, SignStyle.EXCEEDS_PAD)
-    .appendLiteral('-')
-    .appendValue(MONTH_OF_YEAR, 2)
-    .appendLiteral('-')
-    .appendValue(DAY_OF_MONTH, 2)
-    .appendLiteral(' ')
-    .appendValue(HOUR_OF_DAY, 2)
-    .appendLiteral(':')
-    .appendValue(MINUTE_OF_HOUR, 2)
-    .appendLiteral(':')
-    .appendValue(SECOND_OF_MINUTE, 2)
-    .appendOffset("+HHMM", "Z")
-    .toFormatter(Locale.US)
-
-  private def pascalCaseSplit(s: List[Char]): List[String] =
-    if (s.isEmpty) {
-      Nil
-    }
-    else if (!s.head.isUpper) {
-      val (w, tail) = s.span(!_.isUpper)
-      w.mkString :: pascalCaseSplit(tail)
-    }
-    else if (s.tail.headOption.forall(!_.isUpper)) {
-      val (w, tail) = s.tail.span(!_.isUpper)
-      (s.head :: w).mkString :: pascalCaseSplit(tail)
-    }
-    else {
-      val (w, tail) = s.span(_.isUpper)
-      w.init.mkString :: pascalCaseSplit(w.last :: tail)
-    }
-
-  private def hyphenize(s: String): String =
-    pascalCaseSplit(s.toList).map(_.toLowerCase).mkString("-")
-
-  private def resolveJarName(m: ModuleEntry, convention: String) = {
-    convention match {
-      case "original" => m.originalFileName
-      case "full" => m.fullJarName
-      case "no-version" => m.noVersionJarName
-      case _ => m.jarName
-    }
-  }
-
 }

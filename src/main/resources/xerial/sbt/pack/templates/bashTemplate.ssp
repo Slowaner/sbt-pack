@@ -1,0 +1,2 @@
+<%@ val opts : xerial.sbt.pack.LaunchScript.Opts %>
+TEST TEMPLATE bash!

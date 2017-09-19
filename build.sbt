@@ -1,7 +1,6 @@
-import ReleaseTransformations._
 
-scriptedSettings
-enablePlugins(SbtTwirl)
+//scriptedSettings
+//enablePlugins(SbtTwirl)
 
 organization := "org.xerial.sbt"
 organizationName := "Xerial project"
@@ -14,15 +13,17 @@ publishArtifact in Test := false
 pomIncludeRepository := { _ => false }
 
 sbtPlugin := true
-crossSbtVersions := Vector("1.0.0", "0.13.16")
+crossSbtVersions := Vector("1.0.2")
+
+crossScalaVersions := Vector("2.10.6", "2.12.3")
 
 parallelExecution := true
-crossPaths := false
+//crossPaths := false
 scalacOptions ++= Seq("-encoding", "UTF-8", "-deprecation", "-unchecked")
 scriptedBufferLog := false
 scriptedLaunchOpts ++= {
   import scala.collection.JavaConverters._
-  management.ManagementFactory.getRuntimeMXBean().getInputArguments().asScala
+  management.ManagementFactory.getRuntimeMXBean.getInputArguments.asScala
     .filter(a => Seq("-Xmx", "-Xms").contains(a) || a.startsWith("-XX")).toSeq :+ s"-Dplugin.version=${version.value}"
 }
 
@@ -35,9 +36,7 @@ libraryDependencies ++= Seq(
   "org.apache.commons" % "commons-compress" % "1.9",
   "org.tukaani" % "xz" % "1.5",
   "org.slf4j" % "slf4j-simple" % "1.7.5",
-  "org.specs2" %% "specs2-core" % "3.9.2" % "test",
-  // Templates
-  "org.scalatra.scalate" %% "scalate-core" % "{latest version}"
+  "org.specs2" %% "specs2-core" % "3.9.2" % "test"
 )
 
 releaseCrossBuild := true
@@ -45,7 +44,7 @@ releaseTagName := {
   (version in ThisBuild).value
 }
 releasePublishArtifactsAction := PgpKeys.publishSigned.value
-releaseProcess := Seq[ReleaseStep](
+/*releaseProcess := Seq[ReleaseStep](
   checkSnapshotDependencies,
   inquireVersions,
   runClean,
@@ -76,5 +75,5 @@ val bumpVersion = ReleaseStep(
       case _ => state.fail
     }
   }
-)
+)*/
 
