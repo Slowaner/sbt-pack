@@ -1,7 +1,3 @@
-
-//scriptedSettings
-//enablePlugins(SbtTwirl)
-
 organization := "org.xerial.sbt"
 organizationName := "Xerial project"
 name := "sbt-pack"
@@ -61,6 +57,8 @@ releasePublishArtifactsAction := PgpKeys.publishSigned.value
   releaseStepCommand("sonatypeReleaseAll"),
   pushChanges
 )
+
+import scala.sys.process.Process
 
 val bumpVersion = ReleaseStep(
   action = { state =>

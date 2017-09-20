@@ -1,26 +1,25 @@
 <%@ val opts : xerial.sbt.pack.LaunchScript.Opts %>
 <%
     import java.nio.file.Paths
-    import sun.nio.fs.WindowsFileSystem
-    import java.io.File
 %>
 <%
+    val psep = ";";
     def mapClassPath(cp: String):String={
     val ps =  Paths.get(cp)
 
-    if (!ps.isAbsolute) Paths.get("%PROG_HOME%").resolve(ps).normalize().toString
-    else ps.normalize().toString
+    (if (!ps.isAbsolute) Paths.get("%PROG_HOME%").resolve(ps).normalize().toString
+    else ps.normalize().toString).replace('/','\\')
     }
 
     val extraClasspath =
-    if (opts.extraClasspath.nonEmpty) opts.extraClasspath.map(mapClassPath).mkString("",File.pathSeparator,File.pathSeparator)
+    if (opts.extraClasspath.nonEmpty) opts.extraClasspath.map(mapClassPath).mkString("",psep,psep)
     else ""
     val expandedClasspath =
-    if (opts.expandedClasspath.nonEmpty) opts.expandedClasspath.map(mapClassPath).mkString("",File.pathSeparator,File.pathSeparator)
+    if (opts.expandedClasspath.nonEmpty) opts.expandedClasspath.map(mapClassPath).mkString("",psep,psep)
     else ""
 
-    val classpath = if(opts.expandedClasspath.isEmpty) '"' + extraClasspath + "%PROG_HOME%\\lib\\*" + File.pathSeparator + '"'
-    else '"' + extraClasspath + expandedClasspath + File.pathSeparator + '"'
+    val classpath = if(opts.expandedClasspath.isEmpty) '"' + extraClasspath + "%PROG_HOME%\\lib\\*" + psep + '"'
+    else '"' + extraClasspath + expandedClasspath + psep + '"'
 
     val jvmOpts = opts.jvmOpts.mkString(" ")
 %>

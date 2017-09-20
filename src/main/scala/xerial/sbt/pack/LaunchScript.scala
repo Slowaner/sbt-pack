@@ -23,7 +23,18 @@ object LaunchScript {
   private lazy val teng = new TemplateEngine()
   private var cachedTemplates: Map[URI, Template] = Map[URI, Template]()
 
-  def generateForScriptSource(scriptSource: ScriptSource, opts: Opts): String = {
+  def generateScript(scriptSource: ScriptSource, opts: Opts): String = {
+    val uri = scriptSource.uri
+    val templ = if (!cachedTemplates.contains(uri)) {
+      val tsrc = TemplateSource.fromSource(uri.toString, scriptSource.source)
+      val template = teng.compile(tsrc)
+      cachedTemplates += uri -> template
+      template
+    } else cachedTemplates(uri)
+    teng.layout(uri.toString, templ, Map("opts" -> opts))
+  }
+
+  def generateMakefile(scriptSource: ScriptSource, opts: MakefileOpts): String = {
     val uri = scriptSource.uri
     val templ = if (!cachedTemplates.contains(uri)) {
       val tsrc = TemplateSource.fromSource(uri.toString, scriptSource.source)
@@ -43,6 +54,11 @@ object LaunchScript {
     expandedClasspath: Seq[String],
     jvmOpts: Seq[String] = Nil,
     macIconFile: String = "icon-mac.png"
+  )
+
+  case class MakefileOpts(
+    projectName: String,
+    symLinks: Seq[String]
   )
 
 }

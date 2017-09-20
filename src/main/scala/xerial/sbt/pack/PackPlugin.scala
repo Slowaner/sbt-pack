@@ -17,6 +17,7 @@ import scala.util.matching.Regex
 import sbt.Keys._
 import sbt.complete.DefaultParsers._
 import sbt.{Def, _}
+import xerial.sbt.pack.LaunchScript.MakefileOpts
 
 /**
   * Plugin for packaging projects
@@ -292,8 +293,8 @@ object PackPlugin extends AutoPlugin with PackArchive {
       val expandedCp = packExpandedClasspath.value
 
       // Render script via Scalate template
-      for ((name, mainClass) <- mainTable) {
-        out.log.info("main class for %s: %s".format(name, mainClass))
+      for ((scriptName, mainClass) <- mainTable) {
+        out.log.info("main class for %s: %s".format(scriptName, mainClass))
 
         def expandedClasspath: Seq[String] = {
           val projJars = libs.map(l => "lib/" + l.getName)
@@ -312,27 +313,27 @@ object PackPlugin extends AutoPlugin with PackArchive {
         }
 
         val scriptOpts = LaunchScript.Opts(
-          progName = name,
+          progName = scriptName,
           progVersion = progVersion,
           progRevision = gitRevision,
           mainClass = mainClass,
-          extraClasspath = packExtraClasspath.value.getOrElse(name, Nil),
+          extraClasspath = packExtraClasspath.value.getOrElse(scriptName, Nil),
           expandedClasspath = expandedClasspathM,
-          jvmOpts = packJvmOpts.value.getOrElse(name, Nil).map("\"%s\"".format(_)),
+          jvmOpts = packJvmOpts.value.getOrElse(scriptName, Nil).map("\"%s\"".format(_)),
           macIconFile = macIconFile
         )
 
-        val progName = name.replaceAll(" ", "") // remove white spaces
-        val bashTemplSource = packBashCustomTemplates.value.getOrElse(name, packBashDefaultTemplate.value)
+        val progName = scriptName.replaceAll(" ", "") // remove white spaces
+        val bashTemplSource = packBashCustomTemplates.value.getOrElse(scriptName, packBashDefaultTemplate.value)
         if (packGenerateBashFile.value) {
-          val launchScript = LaunchScript.generateForScriptSource(bashTemplSource, scriptOpts)
+          val launchScript = LaunchScript.generateScript(bashTemplSource, scriptOpts)
           write(s"bin/$progName", launchScript)
         }
 
         // Create BAT file
-        val batTemplSource = packBatCustomTemplates.value.getOrElse(name, packBatDefaultTemplate.value)
+        val batTemplSource = packBatCustomTemplates.value.getOrElse(scriptName, packBatDefaultTemplate.value)
         if (packGenerateWindowsBatFile.value) {
-          val batScript = LaunchScript.generateForScriptSource(batTemplSource, scriptOpts)
+          val batScript = LaunchScript.generateScript(batTemplSource, scriptOpts)
           write(s"bin/$progName.bat", batScript)
         }
       }
@@ -342,16 +343,13 @@ object PackPlugin extends AutoPlugin with PackArchive {
       val binScriptsDir = otherResourceDirs.map(_._1 / "bin").filter(_.exists)
       out.log.info(s"packed resource directories = ${otherResourceDirs.keys.mkString(",")}")
 
-      def linkToScript(name: String) =
-        "\t" + """ln -sf "../$(PROG)/current/bin/%s" "$(PREFIX)/bin/%s"""".format(name, name)
-
       val projectName = name.value
       val makefileTemplSource = packMakeDefaultTemplate.value
       if (packGenerateMakefile.value) {
         // Create Makefile
         val additionalScripts = binScriptsDir.flatMap(_.listFiles).map(_.getName)
-        val symlink = (mainTable.keys ++ additionalScripts).map(linkToScript).mkString("\n")
-        val makefile = LaunchScript.generateForScriptSource(makefileTemplSource, null)
+        val makefileOpts = MakefileOpts(projectName, (mainTable.keys ++ additionalScripts).toSeq)
+        val makefile = LaunchScript.generateMakefile(makefileTemplSource, makefileOpts)
 
         write("Makefile", makefile)
       }
