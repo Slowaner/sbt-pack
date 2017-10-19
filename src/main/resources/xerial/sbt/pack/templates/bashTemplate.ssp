@@ -3,7 +3,7 @@
     import java.nio.file.Paths
 %>
 <%
-    val psep = ":";
+    val psep = "$PSEP";
 
     def mapClassPath(cp: String):String={
     val ps =  Paths.get(cp)
@@ -19,8 +19,8 @@
     if (opts.expandedClasspath.nonEmpty) opts.expandedClasspath.map(mapClassPath).mkString("",psep,psep)
     else ""
 
-    val classpath = if(opts.expandedClasspath.isEmpty) "'" + extraClasspath + "${PROG_HOME}/lib/*${CLASSPATH_SUFFIX}'"
-    else "'" + extraClasspath + expandedClasspath + "${CLASSPATH_SUFFIX}'"
+    val classpath = if(opts.expandedClasspath.isEmpty) "'" + extraClasspath + "$LD_LIBRARY_PATH" + psep + "${PROG_HOME}/lib/*${CLASSPATH_SUFFIX}'"
+    else "'" + extraClasspath + expandedClasspath + "$LD_LIBRARY_PATH" + psep + "${CLASSPATH_SUFFIX}'"
 %>
 #!/bin/sh
 #/*--------------------------------------------------------------------------
@@ -80,14 +80,15 @@ case "`uname`" in
             echo "Using Java version: $JAVA_VERSION" 1>&2
            fi
            if [ -z "$JAVA_HOME" ] ; then
-             JAVA_HOME=/System/Library/Frameworks/JavaVM.framework/Versions/${"$"}{JAVA_VERSION}/Home
+             JAVA_HOME=/System/Library/Frameworks/JavaVM.framework/Versions/\${JAVA_VERSION}/Home
            fi
-           JAVA_OPTS="$JAVA_OPTS -Xdock:name=\"${"$"}{PROG_NAME}\" -Xdock:icon=\"$PROG_HOME/${opts.macIconFile}\" -Dapple.laf.useScreenMenuBar=true"
+           JAVA_OPTS="$JAVA_OPTS -Xdock:name=\"\${PROG_NAME}\" -Xdock:icon=\"$PROG_HOME/${opts.macIconFile}\" -Dapple.laf.useScreenMenuBar=true"
            JAVACMD="`which java`"
            ;;
 esac
 
 # Resolve JAVA_HOME from javac command path
+#if(opts.useJavaExec)
 if [ -z "$JAVA_HOME" ]; then
   javaExecutable="`which javac`"
   if [ -n "$javaExecutable" -a -f "$javaExecutable" -a ! "`expr \"$javaExecutable\" : '\([^ ]*\)'`" = "no" ]; then
@@ -102,8 +103,26 @@ if [ -z "$JAVA_HOME" ]; then
     fi
   fi
 fi
+#else
+if [ -z "$SCALA_HOME" ]; then
+  javaExecutable="`which scalac`"
+  if [ -n "$javaExecutable" -a -f "$javaExecutable" -a ! "`expr \"$javaExecutable\" : '\([^ ]*\)'`" = "no" ]; then
+    # readlink(1) is not available as standard on Solaris 10.
+    readLink=`which readlink`
+    if [ ! `expr "$readLink" : '\([^ ]*\)'` = "no" ]; then
+      javaExecutable="`readlink -f \"$javaExecutable\"`"
+      javaHome="`dirname \"$javaExecutable\"`"
+      javaHome=`expr "$javaHome" : '\(.*\)/bin'`
+      SCALA_HOME="$javaHome"
+      export SCALA_HOME
+    fi
+  fi
+fi
+JAVA_HOME="$SCALA_HOME"
+export JAVA_HOME
+#end
 
-
+#if(opts.useJavaExec)
 if [ -z "$JAVACMD" ] ; then
   if [ -n "$JAVA_HOME"  ] ; then
     if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
@@ -116,16 +135,39 @@ if [ -z "$JAVACMD" ] ; then
     JAVACMD="`which java`"
   fi
 fi
+#else
+if [ -z "$JAVACMD" ] ; then
+  if [ -n "$JAVA_HOME"  ] ; then
+    JAVACMD="$JAVA_HOME/bin/scala"
+  else
+    JAVACMD="`which scala`"
+  fi
+fi
+#end
 
+#if(opts.useJavaExec)
 if [ ! -x "$JAVACMD" ] ; then
   echo "Error: JAVA_HOME is not defined correctly."
   echo "  We cannot execute $JAVACMD"
   exit 1
 fi
+#else
+if [ ! -x "$JAVACMD" ] ; then
+  echo "Error: SCALA_HOME is not defined correctly."
+  echo "  We cannot execute $JAVACMD"
+  exit 1
+fi
+#end
 
+#if(opts.useJavaExec)
 if [ -z "$JAVA_HOME" ] ; then
   echo "Warning: JAVA_HOME environment variable is not set."
 fi
+#else
+if [ -z "$JAVA_HOME" ] ; then
+  echo "Warning: SCALA_HOME environment variable is not set."
+fi
+#end
 
 CLASSPATH_SUFFIX=""
 # Path separator used in EXTRA_CLASSPATH
@@ -157,12 +199,12 @@ PROG_VERSION=${opts.progVersion}
 PROG_REVISION=${opts.progRevision}
 
 eval exec "\"$JAVACMD\"" \\
-     ${opts.jvmOpts} \
-     ${"$"}{JAVA_OPTS} \
-     -cp ${classpath}\
-     -Dprog.home="'${"$"}{PROG_HOME}'" \
-     -Dprog.version="${"$"}{PROG_VERSION}" \
-     -Dprog.revision="${"$"}{PROG_REVISION}" \
+     ${opts.jvmOpts} \\
+     \${JAVA_OPTS} \\
+     -cp ${classpath} \\
+     -Dprog.home="'\${PROG_HOME}'" \\
+     -Dprog.version="\${PROG_VERSION}" \\
+     -Dprog.revision="\${PROG_REVISION}" \\
      ${opts.mainClass} \"\$@\"
 exit $?
 

@@ -57,19 +57,38 @@ set ERROR_CODE=0
 if "%OS%"=="Windows_NT" @setlocal
 
 @REM ==== START VALIDATION ====
+#if(opts.useJavaExec)
 if not "%JAVA_HOME%" == "" goto OkJHome
+#else
+if not "%SCALA_HOME%" == "" goto OkJHome
+#end
 
+#if(opts.useJavaExec)
 for /f %%j in ("java.exe") do (
 set JAVA_EXE="%%~$PATH:j"
 goto init
 )
+#else
+for /f %%j in ("scala.exe") do (
+set JAVA_EXE="%%~$PATH:j"
+goto init
+)
+#end
 
 :OkJHome
+#if(opts.useJavaExec)
 if exist "%JAVA_HOME%\bin\java.exe" (
 SET JAVA_EXE="%JAVA_HOME%\bin\java.exe"
 goto init
 )
+#else
+if exist "%SCALA_HOME%\bin\scala.exe" (
+SET JAVA_EXE="%SCALA_HOME%\bin\scala.exe"
+goto init
+)
+#end
 
+#if(opts.useJavaExec)
 echo.
 echo ERROR: JAVA_HOME is set to an invalid directory.
 echo JAVA_HOME = %JAVA_HOME%
@@ -77,6 +96,15 @@ echo Please set the JAVA_HOME variable in your environment to match the
 echo location of your Java installation
 echo.
 goto error
+#else
+echo.
+echo ERROR: SCALA_HOME is set to an invalid directory.
+echo SCALA_HOME = %SCALA_HOME%
+echo Please set the SCALA_HOME variable in your environment to match the
+echo location of your Scala installation
+echo.
+goto error
+#end
 
 :init
 @REM Decide how to startup depending on the version of windows

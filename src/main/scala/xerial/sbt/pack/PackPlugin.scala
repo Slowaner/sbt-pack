@@ -58,6 +58,7 @@ object PackPlugin extends AutoPlugin with PackArchive {
     val packAllUnmanagedJars = taskKey[Seq[(Classpath, ProjectRef)]]("all unmanaged jar files")
     val packModuleEntries = taskKey[Seq[ModuleEntry]]("modules that will be packed")
     val packJvmOpts = SettingKey[Map[String, Seq[String]]]("pack-jvm-opts")
+    val packUseJavaExec = SettingKey[Map[String, Boolean]]("pack-use-java-exec")
     val packExtraClasspath = SettingKey[Map[String, Seq[String]]]("pack-extra-classpath")
     val packExpandedClasspath = settingKey[Boolean]("Expands the wildcard classpath in launch scripts to point at specific libraries")
     val packJarNameConvention = SettingKey[String]("pack-jarname-convention",
@@ -108,6 +109,7 @@ object PackPlugin extends AutoPlugin with PackArchive {
     packMacIconFile := "icon-mac.png",
     packResourceDir := Map(baseDirectory.value / "src/pack" -> ""),
     packJvmOpts := Map.empty,
+    packUseJavaExec := Map.empty,
     packExtraClasspath := Map.empty,
     packExpandedClasspath := false,
     packJarNameConvention := "default",
@@ -319,6 +321,7 @@ object PackPlugin extends AutoPlugin with PackArchive {
           mainClass = mainClass,
           extraClasspath = packExtraClasspath.value.getOrElse(scriptName, Nil),
           expandedClasspath = expandedClasspathM,
+          useJavaExec = packUseJavaExec.value.getOrElse(scriptName, false),
           jvmOpts = packJvmOpts.value.getOrElse(scriptName, Nil).map("\"%s\"".format(_)),
           macIconFile = macIconFile
         )

@@ -52,6 +52,7 @@ object LaunchScript {
     progRevision: String,
     extraClasspath: Seq[String],
     expandedClasspath: Seq[String],
+    useJavaExec: Boolean = false,
     jvmOpts: Seq[String] = Nil,
     macIconFile: String = "icon-mac.png"
   )
