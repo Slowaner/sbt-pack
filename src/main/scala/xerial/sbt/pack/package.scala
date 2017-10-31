@@ -22,10 +22,10 @@ package object pack {
   def rpath(base: File, f: RichFile, separator: String = File.separator): String =
     f.relativeTo(base).getOrElse(f.asFile).toString(separator)
 
-  private[pack] def getFromAllProjects[T](targetTask: TaskKey[T], state: State): Task[Seq[(T, ProjectRef)]] =
-    getFromSelectedProjects(targetTask, state, Seq.empty)
+  private[pack] def getFromAllProjects[T](targetTask: TaskKey[T], targetProjectRef: ProjectRef, state: State): Task[Seq[(T, ProjectRef)]] =
+    getFromSelectedProjects(targetTask,targetProjectRef, state, Seq.empty)
 
-  private[pack] def getFromSelectedProjects[T](targetTask: TaskKey[T], state: State, exclude: Seq[String]): Task[Seq[(T, ProjectRef)]] = {
+  private[pack] def getFromSelectedProjects[T](targetTask: TaskKey[T], targetProjectRef: ProjectRef, state: State, exclude: Seq[String]): Task[Seq[(T, ProjectRef)]] = {
     val extracted = Project.extract(state)
     val structure = extracted.structure
 
@@ -36,7 +36,7 @@ package object pack {
       (currentProject +: (children flatMap allProjectRefs)) filterNot isExcluded
     }
 
-    val projects: Seq[ProjectRef] = allProjectRefs(extracted.currentRef).distinct
+    val projects: Seq[ProjectRef] = allProjectRefs(targetProjectRef).distinct
     projects.map(p => Def.task {
       ((targetTask in p).value, p)
     } evaluate structure.data).join.asInstanceOf[Task[Seq[(T, ProjectRef)]]]

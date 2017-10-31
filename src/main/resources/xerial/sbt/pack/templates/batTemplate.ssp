@@ -46,7 +46,7 @@
 @REM sbt-pack launch script
 @REM ----------------------------------------------------------------------------
 
-<%--@echo off--%>
+@echo off
 
 @REM set %HOME% to equivalent of $HOME
 if "%HOME%" == "" (set HOME=%HOMEDRIVE%%HOMEPATH%)
@@ -84,6 +84,10 @@ goto init
 #else
 if exist "%SCALA_HOME%\bin\scala.exe" (
 SET JAVA_EXE="%SCALA_HOME%\bin\scala.exe"
+goto init
+)
+if exist "%SCALA_HOME%\bin\scala.bat" (
+SET JAVA_EXE="%SCALA_HOME%\bin\scala.bat"
 goto init
 )
 #end

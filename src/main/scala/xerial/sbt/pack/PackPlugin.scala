@@ -126,19 +126,19 @@ object PackPlugin extends AutoPlugin with PackArchive {
     packBashCustomTemplates := Map.empty[String, ScriptSource],
 
     packMainDiscovered := Def.taskDyn {
-      val mainClasses = getFromSelectedProjects(discoveredMainClasses in Compile, state.value, packExclude.value)
+      val mainClasses = getFromSelectedProjects(discoveredMainClasses in Compile, thisProjectRef.value, state.value, packExclude.value)
       Def.task {
         mainClasses.value.flatMap(_._1.map(mainClass => hyphenize(mainClass.split('.').last) -> mainClass).toMap).toMap
       }
     }.value,
     packAllUnmanagedJars := Def.taskDyn {
-      val allUnmanagedJars = getFromSelectedProjects(unmanagedJars in Runtime, state.value, packExclude.value)
+      val allUnmanagedJars = getFromSelectedProjects(unmanagedJars in Runtime, thisProjectRef.value, state.value, packExclude.value)
       Def.task {
         allUnmanagedJars.value
       }
     }.value,
     packLibJars := Def.taskDyn {
-      val libJars = getFromSelectedProjects(packageBin in Runtime, state.value, packExcludeLibJars.value)
+      val libJars = getFromSelectedProjects(packageBin in Runtime, thisProjectRef.value, state.value, packExcludeLibJars.value)
       Def.task {
         libJars.value
       }

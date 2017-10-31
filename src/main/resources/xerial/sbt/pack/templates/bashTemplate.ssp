@@ -19,8 +19,8 @@
     if (opts.expandedClasspath.nonEmpty) opts.expandedClasspath.map(mapClassPath).mkString("",psep,psep)
     else ""
 
-    val classpath = if(opts.expandedClasspath.isEmpty) "'" + extraClasspath + "$LD_LIBRARY_PATH" + psep + "${PROG_HOME}/lib/*${CLASSPATH_SUFFIX}'"
-    else "'" + extraClasspath + expandedClasspath + "$LD_LIBRARY_PATH" + psep + "${CLASSPATH_SUFFIX}'"
+    val classpath = if(opts.expandedClasspath.isEmpty) extraClasspath + "$LD_LIBRARY_PATH" + psep + "${PROG_HOME}/lib/*${CLASSPATH_SUFFIX}"
+    else extraClasspath + expandedClasspath + "$LD_LIBRARY_PATH" + psep + "${CLASSPATH_SUFFIX}"
 %>
 #!/bin/sh
 #/*--------------------------------------------------------------------------
@@ -201,10 +201,10 @@ PROG_REVISION=${opts.progRevision}
 eval exec "\"$JAVACMD\"" \\
      ${opts.jvmOpts} \\
      \${JAVA_OPTS} \\
-     -cp ${classpath} \\
+     -cp "\"${classpath}\"" \\
      -Dprog.home="'\${PROG_HOME}'" \\
-     -Dprog.version="\${PROG_VERSION}" \\
-     -Dprog.revision="\${PROG_REVISION}" \\
+     -Dprog.version="'\${PROG_VERSION}'" \\
+     -Dprog.revision="'\${PROG_REVISION}'" \\
      ${opts.mainClass} \"\$@\"
 exit $?
 
