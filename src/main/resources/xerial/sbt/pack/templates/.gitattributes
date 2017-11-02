@@ -1,0 +1,3 @@
+bashTemplate.ssp text eol=lf
+batTemplate.ssp text eol=crlf
+makefileTemplate.ssp text eol=lf

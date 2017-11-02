@@ -18,8 +18,8 @@
     if (opts.expandedClasspath.nonEmpty) opts.expandedClasspath.map(mapClassPath).mkString("",psep,psep)
     else ""
 
-    val classpath = if(opts.expandedClasspath.isEmpty) '"' + extraClasspath + "%PROG_HOME%\\lib\\*" + psep + '"'
-    else '"' + extraClasspath + expandedClasspath + psep + '"'
+    val classpath = if(opts.expandedClasspath.isEmpty) extraClasspath + "%PROG_HOME%\\lib\\*" + psep
+    else extraClasspath + expandedClasspath + psep
 
     val jvmOpts = opts.jvmOpts.mkString(" ")
 %>
@@ -148,7 +148,7 @@ popd
 
 @REM Start Java program
 :runm2
-SET CMDLINE=%JAVA_EXE% ${unescape(jvmOpts)} %JAVA_OPTS% -cp ${unescape(classpath)} -Duser.dir="%PROG_HOME%" -Dprog.home="%PROG_HOME%" -Dprog.version="${opts.progVersion}" -Dprog.revision="${opts.progRevision}" ${opts.mainClass} %CMD_LINE_ARGS%
+SET CMDLINE=%JAVA_EXE% ${unescape(jvmOpts)} %JAVA_OPTS% -Duser.dir="%PROG_HOME%" -Dprog.home="%PROG_HOME%" -Dprog.version="${opts.progVersion}" -Dprog.revision="${opts.progRevision}" -cp "${unescape(classpath)}" ${opts.mainClass} %CMD_LINE_ARGS%
 %CMDLINE%
 if ERRORLEVEL 1 goto error
 goto end
